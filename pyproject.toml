@@ -23,3 +23,6 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/otizemlanetzag/pretty-pasta"
 Repository = "https://github.com/otizemlanetzag/pretty-pasta"
+[tool.hatch.build.targets.wheel]
+packages = ["src/prettypasta"]
+
