@@ -11,7 +11,7 @@ except ImportError:
     HAS_PIL = False
 
 try:
-    import fitz  # PyMuPDF for PDF rendering
+    import fitz  # PyMuPDF לתצוגת PDF
     HAS_FITZ = True
 except ImportError:
     HAS_FITZ = False
@@ -35,9 +35,12 @@ class _CanvasEngine:
         self.clicked_pos = None
         self.images_ref = []
         self.text_boxes = {}
+        self.is_closed = False
         self._last_pump = 0
 
     def _ensure_init(self):
+        if self.is_closed:
+            sys.exit(0)
         if self.root is not None:
             return
 
@@ -67,11 +70,16 @@ class _CanvasEngine:
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
     def _on_close(self):
-        self.root.destroy()
+        self.is_closed = True
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
         sys.exit(0)
 
     def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        if not self.is_closed:
+            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _on_mouse_move(self, event):
         real_x = int(self.canvas.canvasx(event.x))
@@ -93,8 +101,12 @@ class _CanvasEngine:
         now = time.time()
         if now - self._last_pump < 0.01:
             time.sleep(0.01)
-        self.root.update_idletasks()
-        self.root.update()
+        try:
+            self.root.update_idletasks()
+            self.root.update()
+        except tk.TclError:
+            self.is_closed = True
+            sys.exit(0)
         self._last_pump = time.time()
 
 
@@ -157,8 +169,10 @@ def _get_windows_thumbnail(path, width, height):
         return None
 
 
+# ================= הפקודות של PrettyPasta =================
+
 def clr(coord: str, r: int, g: int, b: int):
-    """1. Paint a single pixel at x,y"""
+    """1. צביעת פיקסל בודד"""
     _engine._ensure_init()
     x, y = _parse_point(coord)
     _engine._expand_height(y)
@@ -168,7 +182,7 @@ def clr(coord: str, r: int, g: int, b: int):
 
 
 def square(coord_range: str, r: int, g: int, b: int):
-    """2. Paint a rectangle between x1,y1-x2,y2"""
+    """2. צביעת מלבן לפי טווח x1,y1-x2,y2"""
     _engine._ensure_init()
     left, top, right, bottom = _parse_range(coord_range)
     _engine._expand_height(bottom)
@@ -178,7 +192,7 @@ def square(coord_range: str, r: int, g: int, b: int):
 
 
 def file(path: str, coord_range: str):
-    """3. Display any file inside x1,y1-x2,y2 (Image, PDF, OS Thumbnail, Text, or frustrated emoji)"""
+    """3. הצגת קובץ בתוך מלבן (תמונה, PDF, OS Thumbnail, טקסט או אימוג'י מתוסכל)"""
     _engine._ensure_init()
     left, top, right, bottom = _parse_range(coord_range)
     w, h = max(1, right - left), max(1, bottom - top)
@@ -250,7 +264,7 @@ def file(path: str, coord_range: str):
 
 
 def text(content: str, font_name: str, size: int, rgb: str, top_edge: str):
-    """4. Display static text under top edge x1,y1_x2,y2 with automatic line wrapping"""
+    """4. הצגת טקסט סטטי בין שתי פינות עליונות x1,y1_x2,y2 עם ירידת שורה אוטומטית"""
     _engine._ensure_init()
     p1, p2 = top_edge.strip().split("_")
     x1, y1 = _parse_point(p1)
@@ -283,7 +297,6 @@ def text(content: str, font_name: str, size: int, rgb: str, top_edge: str):
 
 
 def _apply_rich_styles(widget: tk.Text, styles: list):
-    """Parse and apply segment styles: 'start-end(size, font, "r,g,b")'"""
     if not styles:
         return
     if isinstance(styles, str):
@@ -311,7 +324,7 @@ def _apply_rich_styles(widget: tk.Text, styles: list):
 
 
 def Text(top_edge: str, nr_of_rows: int = None, font: str = "Arial", size: int = 14, rgb: str = "0,0,0", styles=None) -> str:
-    """5. Interactive text box with optional row limit and per-range rich styling char-char(size, font, 'r,g,b')"""
+    """5. תיבת קלט טקסט עם תמיכה בהגבלת שורות, גובה דינמי ועיצוב מקטעים char-char(size, font, 'r,g,b')"""
     _engine._ensure_init()
 
     if isinstance(nr_of_rows, (list, str)):
@@ -327,25 +340,40 @@ def Text(top_edge: str, nr_of_rows: int = None, font: str = "Arial", size: int =
     width_px = max(40, abs(x2 - x1))
     default_color = _parse_rgb_str(rgb)
 
+    max_font_size = size
+    if styles:
+        style_list = [styles] if isinstance(styles, str) else styles
+        for rule in style_list:
+            m = re.match(r"^\s*\d+\s*-\s*\d+\s*\(\s*(\d+)", rule)
+            if m:
+                max_font_size = max(max_font_size, int(m.group(1)))
+
     if top_edge not in _engine.text_boxes:
         initial_height = nr_of_rows if nr_of_rows is not None else 1
         txt_widget = tk.Text(
             _engine.canvas,
-            font=(font, size),
+            font=(font, max_font_size),
             fg=default_color,
             wrap=tk.WORD,
             height=initial_height,
             bd=1,
-            relief=tk.SOLID
+            relief=tk.SOLID,
+            pady=4
         )
+        txt_widget.tag_configure("default_style", font=(font, size), foreground=default_color)
         win_id = _engine.canvas.create_window(left, top, anchor=tk.NW, window=txt_widget, width=width_px)
 
         def _on_key(event=None):
+            if _engine.is_closed:
+                return
+            txt_widget.tag_add("default_style", "1.0", "end")
             if nr_of_rows is None:
                 lines = int(txt_widget.index("end-1c").split(".")[0])
                 txt_widget.config(height=max(1, lines))
             if styles:
                 _apply_rich_styles(txt_widget, styles)
+                for idx in range(len(styles) if isinstance(styles, list) else 1):
+                    txt_widget.tag_raise(f"style_{idx}")
             bbox = _engine.canvas.bbox(win_id)
             if bbox:
                 _engine._expand_height(bbox[3])
@@ -355,14 +383,22 @@ def Text(top_edge: str, nr_of_rows: int = None, font: str = "Arial", size: int =
     else:
         txt_widget, win_id = _engine.text_boxes[top_edge]
 
+    if not txt_widget.winfo_exists():
+        sys.exit(0)
+
+    txt_widget.tag_add("default_style", "1.0", "end")
     if styles:
         _apply_rich_styles(txt_widget, styles)
+        for idx in range(len(styles) if isinstance(styles, list) else 1):
+            txt_widget.tag_raise(f"style_{idx}")
 
     bbox = _engine.canvas.bbox(win_id)
     if bbox:
         _engine._expand_height(bbox[3])
 
     _engine.pump()
+    if _engine.is_closed or not txt_widget.winfo_exists():
+        sys.exit(0)
     return txt_widget.get("1.0", "end-1c")
 
 
@@ -379,13 +415,13 @@ def _check_hit(target: str, point: tuple) -> bool:
 
 
 def ontouch(target: str) -> bool:
-    """6a. Returns True if mouse pointer touches the pixel or rectangle"""
+    """6א. מחזיר True אם סמן העכבר נוגע בפיקסל או במלבן"""
     _engine.pump()
     return _check_hit(target, _engine.mouse_pos)
 
 
 def onclick(target: str) -> bool:
-    """6b. Returns True if mouse clicked on the pixel or inside the rectangle"""
+    """6ב. מחזיר True אם בוצעה לחיצה על הפיקסל או בתוך המלבן"""
     _engine.pump()
     if _engine.clicked_pos is None:
         return False
