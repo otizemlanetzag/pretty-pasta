@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pretty-pasta"
+version = "0.1.0"
+description = "A Python library for making advanced GUIs -"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "AGPL-3.0-or-later" }
+authors = [
+    { name = "otizemlanetzag" }
+]
+keywords = ["gui", "interface", "ui"]
+dependencies = [
+    "PyMuPDF",
+    "python-bidi",
+    "arabic-reshaper",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/otizemlanetzag/pretty-pasta"
+Repository = "https://github.com/otizemlanetzag/pretty-pasta"
